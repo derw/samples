@@ -2,27 +2,37 @@
 ;* Copyright (C) 2020
 ;* Marek Gębski marekgebski(at)yandex.ru
 ;*
+;*  binary-coded decimal implementation
+;*
+;*
 ;* * * * * * * * * * * * * * * * * * * * *
 
-
-
-.def rmp = R16 ; Define multipurpose register
-.def rm1 = R18 ; Define multipurpose register
-.def rm2 = R19 ; Define multipurpose register
 .def counter  = R17
 .def NumH     = R31
 .def NumL     = R30
-.def dig1   = R22
-.def dig2   = R23
-.def dig3   = R24
+.def dig1   	= R22
+.def dig2   	= R23
+.def dig3   	= R24
 .dseg
-digit1:
+dNumber:
+dNumH:
   .byte 1
-digit2:
+dNumL:
   .byte 1
-digit3:
+compDigit1:
   .byte 1
+compDigit2:
+  .byte 1
+compDigit3:
+  .byte 1
+digit:
+	.byte 6
+value:
+	.byte 6
+valueEnd:
 .cseg
+;* * * * * * * * * * * * *
+;* Binary-coded decimal word long
 ;* input:
 ;*   NumL
 ;*   NumH                          
@@ -35,14 +45,13 @@ digit3:
 ;*            MSB thousands
 ;*   digit3
 ;*            LSB ten of thousands
-; Word to compressed BCD
+;* Word to compressed BCD
+;* * * * * * * * * * * * *
 w2bcd:
   clr dig1       ; Oneness and dozens
   clr dig2       ; Hundreds and thousands
   clr dig3       ; Tens of thousands
   ldi counter, 16  ; 16 shift counter
-  mov rm1, NumL    ; Load first byte 
-  mov rm2, NumH    ; Load secend byte
 w2bcd_shift:
   mov  rmp, dig1 ; Check first oneness
   andi rmp, 0xF    ; Discard 4 MSB 
@@ -72,17 +81,85 @@ w2bcd_next3:
   ldi  rmp, 0x30
   add  dig2, rmp
 w2bcd_next4:
-  lsl  rm1         ; Shift left Binary
-  rol  rm2         ; Shift left with carry
+  lsl  NumL         ; Shift left Binary
+  rol  NumH         ; Shift left with carry
   rol  dig1      ; Shift left with carry 
   rol  dig2      ; Shift left with carry
   rol  dig3      ; Shift left with carry
   dec  counter     ; Subtracts 1 from counter
   brne w2bcd_shift ; Brench if counter<>0
-  sts digit1, dig1
-  sts digit2, dig2
-  sts digit3, dig3
-  ret
+  sts compDigit1, dig1
+  sts compDigit2, dig2
+  sts compDigit3, dig3
+ret
+
+;* * * * * * * * * * * * *
+;* Uncompress BCD
+;* input:
+;*    compDigit1 - oneness, tens
+;*    compDigit2 - hundreds, thousands
+;*    compDigit3 - ten of thousens
+;* output:
+;*     digit - address of SRAM with numbers
+;*
+;* * * * * * * * * * * * *
+w2bcd_uncompress:
+  ldi YH, HIGH(digit)
+  ldi YL, LOW(digit)
+
+	lds rmp, compDigit1
+	andi rmp, 0xF
+	std  Y+5, rmp
+
+	lds rmp, compDigit1
+	andi rmp, 0xF0
+	swap rmp
+	std  Y+4, rmp
+
+	lds rmp, compDigit2
+	andi rmp, 0xF
+	std  Y+3, rmp
+
+	lds rmp, compDigit2
+	andi rmp, 0xF0
+	swap rmp
+	std  Y+2, rmp
+
+	lds rmp, compDigit3
+	andi rmp, 0xF
+	std  Y+1, rmp
+
+	ldi rmp, 0x0				;* minus signe
+	std  Y+0, rmp
+ret
+
+;* * * * * * * * * * * * *
+;* Convert to negative number
+;* input:
+;*     NumL
+;*     NumH
+;* output:
+;*     NumL
+;*     NumH
+;* set flag indicate negative number
+;*
+;* * * * * * * * * * * * *
+w2bcd_minus:
+	clF rFlag, fMinusW
+	sbrs NumH, 7
+	ret
+	seF rFlag, fMinusW
+	ser rmp
+	eor NumL, rmp
+	eor NumH, rmp
+	ldi rmp,  1
+	add NumL, rmp
+	clr rmp
+	adc NumH, rmp
+ret
+
+;* * * * * * * * * * * * *
+;* Binary-coded decimal byte long
 ;* input:
 ;*   NumL
 ;* output: compressed BCD          
@@ -91,13 +168,12 @@ w2bcd_next4:
 ;*            MSB tens
 ;*   digit2
 ;*            LSB hundreds
-; Byte to compressed BCD
+;* * * * * * * * * * * * *
 b2bcd:
   clr dig1
   clr dig2
   clr dig3
   ldi counter, 8
-  mov rm1, NumL
 b2bcd_shift:
   mov  rmp, dig1
   andi rmp, 0xF
@@ -113,12 +189,63 @@ b2bcd_next1:
   ldi  rmp, 0x30
   add  dig1, rmp
 b2bcd_next2:
-  lsl  rm1        ; shift left Binary
+  lsl  NumL        ; shift left Binary
   rol  dig1
   rol  dig2
   dec  counter
   brne b2bcd_shift
-  sts digit1, dig1
-  sts digit2, dig2
-  sts digit3, dig3
-  ret
+  sts compDigit1, dig1
+  sts compDigit2, dig2
+  sts compDigit3, dig3
+ret
+
+;* * * * * * * * * * * * *
+;* Uncompress BCD
+;* input:
+;*    compDigit1 - oneness, tens
+;*    compDigit2 - hundreds
+;* output:
+;*     digit - address of SRAM with numbers
+;*
+;* * * * * * * * * * * * *
+b2bcd_uncompress:
+  ldi YH, HIGH(digit)
+  ldi YL, LOW(digit)
+
+	lds rmp, compDigit1  ;* oneness
+	andi rmp, 0xF
+	std  Y+3, rmp
+
+	lds rmp, compDigit1  ;* tens
+	andi rmp, 0xF0
+	swap rmp
+	std  Y+2, rmp
+
+	lds rmp, compDigit2  ;* hundreds
+	andi rmp, 0xF
+	std  Y+1, rmp
+
+	ldi rmp, 0x0				;* minus signe
+	std  Y+0, rmp
+ret
+
+;* * * * * * * * * * * * *
+;* Convert to negative number
+;* input:
+;*     NumL
+;* output:
+;*     NumL
+;* set flag indicate negative number
+;*
+;* * * * * * * * * * * * *
+b2bcd_minus:
+	clF rFlag, fMinusB
+	sbrs NumL, 7
+	ret
+	seF rFlag, fMinusB
+	ser rmp
+	eor NumL, rmp
+	ldi rmp,  1
+	add NumL, rmp
+ret
+
