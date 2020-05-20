@@ -28,8 +28,10 @@ compDigit3:
 digit:
 	.byte 6
 value:
-	.byte 6
-valueEnd:
+  .byte 3
+valueBEnd:
+  .byte 2
+valueWEnd:
 .cseg
 ;* * * * * * * * * * * * *
 ;* Binary-coded decimal word long
